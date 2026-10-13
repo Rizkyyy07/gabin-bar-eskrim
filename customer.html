@@ -235,7 +235,304 @@ h1{font-size:32px;color:var(--brown-2)}
 
 
 
-const state={role:'customer',view:'shop',products:[],cart:[],customer:null,token:null};const adminNav=[['dashboard','Dashboard','📊'],['orders','Pesanan','🧾'],['products','Manajemen Produk','🍨'],['packages','Manajemen Paketan','🎁'],['customers','Data Pelanggan','👥'],['reviews','Ulasan','⭐'],['chat','Chat','💬'],['analytics','Analitik','📈']];const customerNav=[['shop','Pesan Gabin Bar','🛒'],['track','Lacak Pesanan','🔎'],['chat','Chat Admin','💬'],['account','Akun Saya','👤']];const rupiah=n=>'Rp '+Number(n||0).toLocaleString('id-ID');async function api(u,o={}){const headers={'Content-Type':'application/json',...(o.headers||{})};if(state.token) headers['Authorization']='Bearer '+state.token;let r=await fetch(u,{...o,headers}),d=await r.json();if(!r.ok)throw Error(d.error||'Terjadi kesalahan');return d}function toast(t){let e=document.querySelector('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2500)}function setRole(r){return;}function saveAuth(){try{localStorage.setItem('gb_customer',JSON.stringify(state.customer));localStorage.setItem('gb_token',state.token)}catch(e){}}function loadAuth(){try{state.customer=JSON.parse(localStorage.getItem('gb_customer')||'null');state.token=localStorage.getItem('gb_token')}catch(e){}}function clearAuth(){state.customer=null;state.token=null;try{localStorage.removeItem('gb_customer');localStorage.removeItem('gb_token')}catch(e){}saveAuth()}function renderNav(){console.log('renderNav() called, role:', state.role);let links=customerNav;const navEl=document.getElementById('nav');if(navEl)navEl.innerHTML=links.map(([id,n,ic])=>`<button class="${state.view===id?'active':''}" onclick="state.view='${id}';render()"><span class="ni">${ic}</span><span class="nav-label">${n}</span></button>`).join(''); }function render(){console.log('render() called, view:', state.view, 'role:', state.role);loadAuth();renderNav();let customer=true;const _headerAction=document.getElementById('headerAction');if(_headerAction)_headerAction.style.display=customer?'none':'';let nt=document.querySelector('#notifTitle'),ns=document.querySelector('#notifSub'),nb=document.querySelector('#notifBox');if(nt)nt.textContent=customer?'Notifikasi Saya':'Notifikasi Admin';if(ns)ns.textContent=customer?'Status & pembayaran pesanan Anda':'Pesanan & pembayaran masuk';if(nb)nb.classList.remove('show');const _title=document.getElementById('title');if(_title)_title.textContent=(state.view==='track'?'Lacak Pesanan':state.view==='account'?'Akun Saya':state.view==='chat'?'Chat Admin':'Pesan Gabin Bar');const _subtitle=document.getElementById('subtitle');if(_subtitle)_subtitle.textContent='Pilih rasa favoritmu dan buat pesanan.';updateCustomerHeader();try{const _cust={shop,track,chat:customerChat,account}; if(!_cust[state.view]) state.view='shop'; (_cust[state.view]||shop)()}catch(e){console.error('View error:', e);toast('Error memuat tampilan: '+e.message)}refreshNotif();clearInterval(notifTimer);notifTimer=setInterval(refreshNotif,15000)}function updateCustomerHeader(){if(state.role!=='customer')return;const actions=document.querySelector('.head-actions');if(!actions)return;if(state.customer){actions.innerHTML=`<div class="notif-wrap"><button class="icon-btn" id="notifBtn" onclick="toggleNotif()">🔔<b class="badge" id="notifBadge" style="display:none">0</b></button><div class="notif-box" id="notifBox"><div class="notif-head"><b id="notifTitle">Notifikasi Saya</b><small id="notifSub">Status & pembayaran pesanan Anda</small></div><div id="notifList"></div></div></div><div class="customer-menu" style="position:relative"><button class="icon-btn" onclick="toggleCustomerMenu()" style="gap:8px;padding:0 12px;font-size:13px"><span>👤</span><span>${escapeHtml(state.customer.name)}</span></button><div class="customer-dropdown" id="customerDropdown" style="display:none;position:absolute;right:0;top:52px;min-width:240px;background:#fffdfb;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(80,48,31,.18);z-index:30;overflow:hidden"><div style="padding:12px;border-bottom:1px solid var(--line)"><b style="font-size:13px">${escapeHtml(state.customer.name)}</b><br><small class="muted">${escapeHtml(state.customer.email)} &nbsp; ${escapeHtml(state.customer.phone||'-')}</small></div><button class="dropdown-item" onclick="state.view='account';render();closeCustomerMenu()" style="width:100%;text-align:left;padding:12px;background:none;border:none;color:var(--ink);font:inherit;cursor:pointer">👤 Profil & Pesanan</button><button class="dropdown-item" onclick="logout()" style="width:100%;text-align:left;padding:12px;background:none;border:none;color:var(--red);font:inherit;cursor:pointer">🚪 Keluar</button></div></div>`;}else{actions.innerHTML=`<div class="notif-wrap"><button class="icon-btn" id="notifBtn" onclick="toggleNotif()">🔔<b class="badge" id="notifBadge" style="display:none">0</b></button><div class="notif-box" id="notifBox"><div class="notif-head"><b id="notifTitle">Notifikasi Saya</b><small id="notifSub">Status & pembayaran pesanan Anda</small></div><div id="notifList"></div></div></div><button class="primary" style="margin-left:8px" onclick="openLoginModal()">Masuk / Daftar</button>`;}}function toggleCustomerMenu(){const dd=document.querySelector('#customerDropdown');if(dd)dd.style.display=dd.style.display==='block'?'none':'block'}function closeCustomerMenu(){const dd=document.querySelector('#customerDropdown');if(dd)dd.style.display='none'}document.addEventListener('click',e=>{if(!e.target.closest('.customer-menu'))closeCustomerMenu()});function logout(){clearAuth();try{localStorage.removeItem('gb_phone')}catch(e){}trackPhone=null;toast('Berhasil keluar');state.view='shop';render()}async function openLoginModal(){const isLogin=arguments[0]===true;formOpen(isLogin?'Masuk':'Daftar Akun',isLogin?loginFormHtml():registerFormHtml(),isLogin?handleLogin:handleRegister)}function loginFormHtml(){return `<div class="field"><label>EMAIL / NOMOR WHATSAPP</label><input name="identifier" required placeholder="Email atau nomor WhatsApp"></div><div class="field"><label>PASSWORD</label><input name="password" type="password" required placeholder="Minimal 6 karakter"></div><div class="actions"><button type="button" class="secondary" onclick="closeModal()">Batal</button><button class="primary">Masuk</button></div><p class="muted" style="text-align:center;margin-top:12px;font-size:12px">Belum punya akun? <button type="button" class="secondary" style="padding:0;background:none;color:var(--brown)" onclick="openLoginModal(false)">Daftar di sini</button></p>`}function registerFormHtml(){return `<div class="field"><label>NAMA LENGKAP</label><input name="name" required placeholder="Nama lengkap"></div><div class="field"><label>NOMOR WHATSAPP</label><input name="phone" required placeholder="Contoh: 081234567890 (11-12 digit)" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,12)"></div><div class="field"><label>EMAIL</label><input name="email" type="email" required placeholder="email@domain.com"></div><div class="field"><label>PASSWORD</label><input name="password" type="password" required placeholder="Minimal 6 karakter" minlength="6"></div><div class="actions"><button type="button" class="secondary" onclick="openLoginModal(true)">Batal</button><button class="primary">Daftar</button></div><p class="muted" style="text-align:center;margin-top:12px;font-size:12px">Sudah punya akun? <button type="button" class="secondary" style="padding:0;background:none;color:var(--brown)" onclick="openLoginModal(true)">Masuk di sini</button></p>`}async function handleLogin(e){e.preventDefault();const d=Object.fromEntries(new FormData(e.target));try{const r=await api('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});state.customer=r.customer;state.token=r.token;saveAuth();closeModal();toast('Selamat datang, '+r.customer.name+'!');render()}catch(err){toast(err.message)}}async function handleRegister(e){e.preventDefault();const d=Object.fromEntries(new FormData(e.target));const phone=d.phone.replace(/\\D/g,'');if(!(phone.length===11||phone.length===12))return toast('Nomor WhatsApp harus 11-12 digit.');if(d.password.length<6)return toast('Password minimal 6 karakter.');try{await api('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:d.name,phone,email:d.email.toLowerCase(),password:d.password})});closeModal();toast('Registrasi berhasil! Cek email untuk verifikasi akun.');openLoginModal(true)}catch(err){toast(err.message)}}async function account(){if(!state.customer){state.view='shop';render();return toast('Silakan masuk terlebih dahulu.');}if(state.customer.phone) trackPhone=state.customer.phone; let phone=(state.customer.phone||trackPhone||'').trim(); if(!phone){document.getElementById('content').innerHTML=`<div class="card"><h2>Profil Saya</h2><p class="muted">Nomor WhatsApp tidak ditemukan. Silakan lengkapi profil atau buat pesanan dahulu.</p></div>`; return;} let os=await api('/api/customer/orders?phone='+encodeURIComponent(phone));document.getElementById('content').innerHTML=`<div class="card"><h2>Profil Saya</h2><div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:20px;padding:16px;background:#fbf5ef;border-radius:12px"><div style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#7a5340,#5b3a2b);color:#fff;display:grid;place-items:center;font-size:24px;font-weight:800">${escapeHtml(state.customer.name[0].toUpperCase())}</div><div><h3 style="margin:0 0 4px">${escapeHtml(state.customer.name)}</h3><p class="muted" style="margin:0">📱 ${escapeHtml(state.customer.phone||'-')} &nbsp; | &nbsp; 📧 ${escapeHtml(state.customer.email)}</p></div></div><h3 style="margin:16px 0 10px">Riwayat Pesanan</h3>${os.length?`<div style="display:grid;gap:12px">${os.map(o=>`<div class="card" style="padding:16px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div><b>${o.code}</b><br><small class="muted">${new Date(o.created_at+'Z').toLocaleString('id-ID')}</small></div><div style="text-align:right"><span class="status ${o.status==='selesai'?'done':'process'}">${o.status.replace('_',' ')}</span><br><small class="muted">${o.payment_method=== 'tunai' ? '💵' : o.payment_method==='transfer' ? '🏦' : o.payment_method==='qris' ? '📱' : '💳'} ${o.payment_method}</small><br><b>${rupiah(o.total)}</b></div></div><div style="margin-top:12px;padding:10px;background:#fdf7f1;border-radius:10px;border:1px solid var(--line)">${(o.items&&o.items.length?o.items.map(it=>`<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px dashed #eddfd4"><span>${escapeHtml(it.product_name)} <small class="muted">x${it.quantity}</small></span><span><small class="muted">${rupiah(it.unit_price)} \u00d7 ${it.quantity}</small> <b>${rupiah(it.subtotal)}</b></span></div>`).join(''):'<small class="muted">Detail produk tidak tersedia.</small>')}</div></div>`).join('')}</div>`:'<p class="muted" style="padding:20px;text-align:center">Belum ada riwayat pesanan.</p>'}</div>`}
+
+const state={role:'customer',view:'shop',products:[],cart:[],customer:null,token:null};const adminNav=[['dashboard','Dashboard','📊'],['orders','Pesanan','🧾'],['products','Manajemen Produk','🍨'],['packages','Manajemen Paketan','🎁'],['customers','Data Pelanggan','👥'],['reviews','Ulasan','⭐'],['chat','Chat','💬'],['analytics','Analitik','📈']];const customerNav=[['shop','Pesan Gabin Bar','🛒'],['track','Lacak Pesanan','🔎'],['chat','Chat Admin','💬'],['account','Akun Saya','👤']];const rupiah=n=>'Rp '+Number(n||0).toLocaleString('id-ID');
+const IS_GH_PAGES = location.hostname.includes('github.io');
+const MOCK_PRODUCTS_DEFAULT = [
+  {id:1,name:'Choco Crunch',description:'Es krim coklat & gabin renyah',price:25000,discount_percent:10,stock:42,emoji:'🍫',category:'Reguler',active:1,image:''},
+  {id:2,name:'Berry Pop',description:'Strawberry segar & cream',price:26000,discount_percent:0,stock:31,emoji:'🍓',category:'Reguler',active:1,image:''},
+  {id:3,name:'Matcha Cloud',description:'Matcha creamy pilihan',price:27000,discount_percent:0,stock:18,emoji:'🍵',category:'Reguler',active:1,image:''},
+  {id:4,name:'Lemon Cheese',description:'Asam manis lemon cheese',price:25000,discount_percent:0,stock:25,emoji:'🍋',category:'Reguler',active:1,image:''},
+  {id:5,name:'Mocha Delight',description:'Kopi moka & gabin klasik',price:27000,discount_percent:0,stock:22,emoji:'☕',category:'Reguler',active:1,image:''}
+];
+const MOCK_PACKAGES_DEFAULT = [
+  {id:1,name:'Paket Manis Berdua',description:'2 rasa pilihan spesial',price:62000,active:1},
+  {id:2,name:'Paket Keluarga',description:'4 rasa untuk keluarga',price:110000,active:1}
+];
+function loadMock(key, fallback){ try{ const v=JSON.parse(localStorage.getItem(key)||'null'); return v!==null?v:fallback; }catch(e){ return fallback; } }
+function saveMock(key,val){ try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){} }
+let mockProducts = loadMock('gb_mock_products', MOCK_PRODUCTS_DEFAULT.slice());
+let mockPackages = loadMock('gb_mock_packages', MOCK_PACKAGES_DEFAULT.slice());
+let mockOrders = loadMock('gb_mock_orders', []);
+let mockCustomers = loadMock('gb_mock_customers', []);
+let mockReviews = loadMock('gb_mock_reviews', []);
+let mockChats = loadMock('gb_mock_chats', []);
+let mockAdminUsers = loadMock('gb_mock_adminUsers', [{id:1,name:'rizky',email:'admin@gabinbar.local',role:'admin',phone:'081224868834',password:'8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',created_at:new Date().toISOString()}]);
+function ghToast(msg){ try{ toast(msg); }catch(e){ console.log(msg);} }
+function mockMakeCode(id){ return '#GB-'+String(id).padStart(4,'0'); }
+async function mockApi(u,o={}){
+  const method=(o.method||'GET').toUpperCase();
+  const url=new URL(u, location.origin);
+  const path=url.pathname;
+  const sp=url.searchParams;
+  // helpers
+  const body = (()=>{ try{ return o.body?JSON.parse(o.body):{} }catch(e){ return {} }})();
+  const auth=(o.headers&&o.headers['Authorization'])||'';
+  const token=auth.replace('Bearer ','');
+  // --- Admin auth ---
+  if(method==='POST' && path==='/api/admin/auth/login'){
+    const {identifier,password}=body;
+    if(!identifier||!password) throw Object.assign(new Error('Email/username dan password wajib diisi.'),{status:400});
+    const cryptoHash = (s)=>{ // simple sha256 via Subtle not available sync, use fallback check for demo: compare with stored hash using same logic as server (sha256 hex)
+      // For mock, accept admin@gabinbar.local / 123456 and also check mockAdminUsers with sha256 via simple comparison
+      // We'll compute synchronously using precomputed hashes for common passwords
+      return s; // placeholder, we'll just compare plain for mock
+    };
+    let user = mockAdminUsers.find(x=> x.email.toLowerCase()===String(identifier).toLowerCase() || x.name===identifier);
+    // For demo, allow 123456 for any admin user, and admin123 for compatibility
+    const isValid = user && (password==='123456' || password==='admin123' || password==='password123');
+    // also try hash check for stored password if we have it as hex
+    if(!isValid){
+      // try to verify against stored hash using hex comparison via simple JS sha256 not available, so just fail
+      throw Object.assign(new Error('Kredensial admin tidak valid.'),{status:401});
+    }
+    const mockToken='mock-admin-token-'+user.id;
+    // store session
+    try{ localStorage.setItem('gb_admin_token', mockToken); }catch(e){}
+    const {password:_,...safe}=user;
+    return {ok:true, admin:safe, token:mockToken};
+  }
+  if(method==='POST' && path==='/api/admin/auth/logout'){
+    return {ok:true};
+  }
+  if(method==='GET' && path==='/api/admin/auth/me'){
+    if(!token || !token.startsWith('mock-admin-token')) throw Object.assign(new Error('Tidak terautentikasi.'),{status:401});
+    const id=parseInt(token.split('-').pop())||1;
+    let user=mockAdminUsers.find(x=>x.id===id)||mockAdminUsers[0];
+    const {password:_,...safe}=user;
+    return {admin:safe};
+  }
+  if(method==='GET' && path==='/api/admin/users'){
+    return mockAdminUsers.map(u=>({id:u.id,name:u.name,role:u.role,email:u.email,phone:u.phone,created_at:u.created_at}));
+  }
+  if(method==='POST' && path==='/api/admin/users'){
+    const {name,email,password,role,phone}=body;
+    if(!name||!email||!password) throw Object.assign(new Error('Nama, email, dan password wajib diisi.'),{status:400});
+    if(mockAdminUsers.some(x=>x.email.toLowerCase()===email.toLowerCase())) throw Object.assign(new Error('Email sudah terdaftar.'),{status:400});
+    const id=Math.max(0,...mockAdminUsers.map(x=>x.id))+1;
+    mockAdminUsers.push({id,name,role:role||'admin',email:email.toLowerCase(),phone:phone||'',password:'hash',created_at:new Date().toISOString()});
+    saveMock('gb_mock_adminUsers', mockAdminUsers);
+    return {id};
+  }
+  const adminUserMatch=path.match(/^\/api\/admin\/users\/(\d+)$/);
+  if(adminUserMatch){
+    const id=parseInt(adminUserMatch[1]);
+    if(method==='PATCH'){
+      let u=mockAdminUsers.find(x=>x.id===id); if(!u) throw Object.assign(new Error('Admin tidak ditemukan'),{status:404});
+      const {name,email,password,role,phone}=body;
+      if(name) u.name=name;
+      if(email) u.email=email.toLowerCase();
+      if(role) u.role=role;
+      if(phone!==undefined) u.phone=phone;
+      saveMock('gb_mock_adminUsers', mockAdminUsers);
+      return {ok:true};
+    }
+    if(method==='DELETE'){
+      if(mockAdminUsers.length<=1) throw Object.assign(new Error('Tidak bisa hapus admin terakhir.'),{status:400});
+      mockAdminUsers=mockAdminUsers.filter(x=>x.id!==id);
+      saveMock('gb_mock_adminUsers', mockAdminUsers);
+      return {ok:true};
+    }
+  }
+  // --- Products ---
+  if(method==='GET' && path==='/api/products') return mockProducts.filter(p=>p.active);
+  if(method==='GET' && path==='/api/admin/products') return mockProducts.slice();
+  if(method==='POST' && path==='/api/admin/products'){
+    const {name,description,price,stock,emoji,category,image}=body;
+    const id=Math.max(0,...mockProducts.map(x=>x.id))+1;
+    mockProducts.push({id,name,description:description||'',price:Number(price),stock:Number(stock),emoji:emoji||'🍨',category:category||'Reguler',active:1,image:image||'',discount_percent:0});
+    saveMock('gb_mock_products', mockProducts);
+    return {id};
+  }
+  const prodMatch=path.match(/^\/api\/admin\/products\/(\d+)$/);
+  if(prodMatch){
+    const id=parseInt(prodMatch[1]);
+    if(method==='PATCH'){
+      let p=mockProducts.find(x=>x.id===id); if(!p) throw Object.assign(new Error('Produk tidak ditemukan'),{status:404});
+      Object.assign(p, {name:body.name??p.name, description:body.description??p.description, price:body.price!==undefined?Number(body.price):p.price, stock:body.stock!==undefined?Number(body.stock):p.stock, emoji:body.emoji??p.emoji, category:body.category??p.category, image:body.image!==undefined?body.image:p.image, active:body.active!==undefined?(body.active?1:0):p.active, discount_percent:body.discount_percent!==undefined?Number(body.discount_percent):p.discount_percent});
+      saveMock('gb_mock_products', mockProducts);
+      return {ok:true};
+    }
+    if(method==='DELETE'){
+      const used = mockOrders.some(o=> (o.items||[]).some(it=>it.product_id===id));
+      if(used) throw Object.assign(new Error('Produk sudah pernah dipesan, tidak bisa dihapus. Nonaktifkan saja.'),{status:400});
+      mockProducts=mockProducts.filter(x=>x.id!==id);
+      saveMock('gb_mock_products', mockProducts);
+      return {ok:true};
+    }
+  }
+  if(method==='POST' && path==='/api/admin/products/upload'){
+    const {image}=body;
+    if(!image||!image.startsWith('data:image/')) throw Object.assign(new Error('Format gambar tidak valid.'),{status:400});
+    return {ok:true,image};
+  }
+  // --- Packages ---
+  if(method==='GET' && path==='/api/packages'){
+    const all=sp.get('all');
+    return all?mockPackages.slice():mockPackages.filter(p=>p.active);
+  }
+  if(method==='POST' && path==='/api/packages'){
+    const {name,description,price}=body;
+    const id=Math.max(0,...mockPackages.map(x=>x.id))+1;
+    mockPackages.push({id,name,description:description||'',price:Number(price),active:1});
+    saveMock('gb_mock_packages', mockPackages);
+    return {id};
+  }
+  const pkgMatch=path.match(/^\/api\/packages\/(\d+)$/);
+  if(pkgMatch){
+    const id=parseInt(pkgMatch[1]);
+    if(method==='PATCH'){
+      let p=mockPackages.find(x=>x.id===id); if(!p) throw Object.assign(new Error('Paket tidak ditemukan'),{status:404});
+      if(body.name!==undefined) p.name=body.name;
+      if(body.description!==undefined) p.description=body.description;
+      if(body.price!==undefined) p.price=Number(body.price);
+      if(body.active!==undefined) p.active=body.active?1:0;
+      saveMock('gb_mock_packages', mockPackages);
+      return {ok:true};
+    }
+    if(method==='DELETE'){
+      mockPackages=mockPackages.filter(x=>x.id!==id);
+      saveMock('gb_mock_packages', mockPackages);
+      return {ok:true};
+    }
+  }
+  // --- Orders ---
+  if(method==='GET' && path==='/api/orders'){
+    return mockOrders.slice().sort((a,b)=>b.id-a.id);
+  }
+  if(method==='GET' && path==='/api/customer/orders'){
+    const phone=(sp.get('phone')||'').trim();
+    if(!phone) return [];
+    return mockOrders.filter(o=>o.customer_phone===phone).sort((a,b)=>b.id-a.id);
+  }
+  if(method==='POST' && path==='/api/orders'){
+    const {customerName,phone,notes,items,paymentMethod,paymentBank,paymentStatus}=body;
+    if(!items||!items.length) throw Object.assign(new Error('Minimal satu produk wajib diisi.'),{status:400});
+    let total=0;
+    let orderItems=[];
+    for(const it of items){
+      if(it.packageId){
+        const pkg=mockPackages.find(x=>x.id===it.packageId);
+        if(!pkg) throw Object.assign(new Error('Paket tidak tersedia.'),{status:400});
+        const sub=pkg.price*it.quantity; total+=sub;
+        orderItems.push({product_id:null,product_name:pkg.name,quantity:it.quantity,unit_price:pkg.price,subtotal:sub});
+      }else{
+        const prod=mockProducts.find(x=>x.id===it.productId);
+        if(!prod) throw Object.assign(new Error('Produk tidak tersedia.'),{status:400});
+        if(prod.stock < it.quantity) throw Object.assign(new Error('Stok '+prod.name+' tidak mencukupi.'),{status:400});
+        prod.stock -= it.quantity;
+        const price=Math.round(prod.price*(100-(prod.discount_percent||0))/100);
+        const sub=price*it.quantity; total+=sub;
+        orderItems.push({product_id:prod.id,product_name:prod.name,quantity:it.quantity,unit_price:price,subtotal:sub});
+      }
+    }
+    saveMock('gb_mock_products', mockProducts);
+    const id=mockOrders.length?Math.max(...mockOrders.map(x=>x.id))+1:1;
+    const code=mockMakeCode(id);
+    const custPhone=(phone||'').replace(/\D/g,'')||'081200000000';
+    const custName=customerName||'Tamu';
+    // upsert customer
+    let cust=mockCustomers.find(c=>c.phone===custPhone);
+    if(!cust){ cust={id:mockCustomers.length+1,name:custName,phone:custPhone,total_orders:0,total_spent:0,last_order:new Date().toISOString()}; mockCustomers.push(cust); }
+    cust.total_orders+=1; cust.total_spent+=total; cust.last_order=new Date().toISOString();
+    saveMock('gb_mock_customers', mockCustomers);
+    const order={id,code,customer_id:cust.id,customer_name:cust.name,customer_phone:custPhone,phone:custPhone,type:'langsung',status:'menunggu',notes:notes||'',total,payment_method:paymentMethod||'tunai',payment_bank:paymentBank||null,payment_status:paymentStatus||'belum_dibayar',payment_proof:null,paid_at:paymentStatus==='dibayar'?new Date().toISOString():null,created_at:new Date().toISOString(),updated_at:new Date().toISOString(),items:orderItems};
+    mockOrders.push(order);
+    saveMock('gb_mock_orders', mockOrders);
+    return {id,code,total,type:'langsung',paymentMethod:order.payment_method,paymentBank:order.payment_bank,paymentStatus:order.payment_status};
+  }
+  const statusMatch=path.match(/^\/api\/orders\/(\d+)\/status$/);
+  if(method==='PATCH' && statusMatch){
+    const id=parseInt(statusMatch[1]); let o=mockOrders.find(x=>x.id===id); if(!o) throw Object.assign(new Error('Pesanan tidak ditemukan'),{status:404});
+    if(body.status) o.status=body.status;
+    if(body.paymentStatus) o.payment_status=body.paymentStatus;
+    o.updated_at=new Date().toISOString();
+    saveMock('gb_mock_orders', mockOrders);
+    return {ok:true};
+  }
+  const payMatch=path.match(/^\/api\/orders\/(\d+)\/payment$/);
+  if(method==='PATCH' && payMatch){
+    const id=parseInt(payMatch[1]); let o=mockOrders.find(x=>x.id===id); if(!o) throw Object.assign(new Error('Pesanan tidak ditemukan'),{status:404});
+    if(body.paymentStatus) o.payment_status=body.paymentStatus;
+    if(body.method) o.payment_method=body.method;
+    if(body.paymentBank) o.payment_bank=body.paymentBank;
+    if(o.payment_status==='dibayar') o.paid_at=new Date().toISOString();
+    saveMock('gb_mock_orders', mockOrders);
+    return {ok:true};
+  }
+  const confirmMatch=path.match(/^\/api\/orders\/(\d+)\/confirm-payment$/);
+  if(method==='PATCH' && confirmMatch){
+    return {ok:true,message:'Konfirmasi terkirim. Admin akan memverifikasi pembayaran Anda.'};
+  }
+  // --- Dashboard / Analytics ---
+  if(method==='GET' && path==='/api/dashboard'){
+    const today=new Date().toISOString().slice(0,10);
+    const todayOrders=mockOrders.filter(o=>o.created_at.slice(0,10)===today);
+    return {sales: todayOrders.reduce((s,x)=>s+x.total,0), orders: todayOrders.length, pending: mockOrders.filter(o=>o.status==='menunggu').length, unpaid: mockOrders.filter(o=>o.payment_status==='belum_dibayar').reduce((s,x)=>s+x.total,0)};
+  }
+  if(method==='GET' && path==='/api/customers'){
+    return mockCustomers.map(c=>({id:c.id,name:c.name,phone:c.phone,total_orders:c.total_orders,total_spent:c.total_spent,last_order:c.last_order,created_at:c.last_order}));
+  }
+  if(method==='GET' && path==='/api/analytics'){
+    const total_orders=mockOrders.length;
+    const revenue=mockOrders.reduce((s,x)=>s+x.total,0);
+    const average_order= total_orders? Math.round(revenue/total_orders):0;
+    const completed_orders=mockOrders.filter(o=>o.status==='selesai').length;
+    // daily last 7 days
+    const daily=[];
+    for(let i=6;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const ds=d.toISOString().slice(0,10); const dayOrders=mockOrders.filter(o=>o.created_at.slice(0,10)===ds); daily.push({date:ds,orders:dayOrders.length,revenue:dayOrders.reduce((s,x)=>s+x.total,0)}); }
+    const topProducts={};
+    for(const o of mockOrders){ for(const it of (o.items||[])){ if(!topProducts[it.product_name]) topProducts[it.product_name]={product_name:it.product_name,quantity:0,revenue:0}; topProducts[it.product_name].quantity+=it.quantity; topProducts[it.product_name].revenue+=it.subtotal; } }
+    const topArr=Object.values(topProducts).sort((a,b)=>b.quantity-a.quantity).slice(0,5);
+    const byPayment={};
+    for(const o of mockOrders){ const m=o.payment_method||'tunai'; if(!byPayment[m]) byPayment[m]={method:m,orders:0,revenue:0}; byPayment[m].orders+=1; byPayment[m].revenue+=o.total; }
+    const unpaid={amount: mockOrders.filter(o=>o.payment_status==='belum_dibayar').reduce((s,x)=>s+x.total,0), orders: mockOrders.filter(o=>o.payment_status==='belum_dibayar').length};
+    return {summary:{total_orders,revenue,average_order,completed_orders},daily,topProducts:topArr,byPayment:Object.values(byPayment),unpaid};
+  }
+  // --- Notifications ---
+  if(path==='/api/notifications') return [];
+  if(method==='PATCH' && path==='/api/notifications/read') return {ok:true};
+  // --- Reviews ---
+  if(method==='GET' && path==='/api/reviews/summary') return [];
+  if(method==='GET' && path==='/api/reviews') return {summary:{count:0,average:0},reviews:[]};
+  if(method==='POST' && path==='/api/reviews') { mockReviews.push({id:mockReviews.length+1, ...body, created_at:new Date().toISOString()}); saveMock('gb_mock_reviews', mockReviews); return {id:mockReviews.length}; }
+  if(method==='GET' && path==='/api/admin/reviews') return mockReviews.slice();
+  if(method==='DELETE' && path.match(/^\/api\/reviews\/\d+$/)){ return {ok:true}; }
+  // --- Chat ---
+  if(method==='GET' && path==='/api/chat') return mockChats.filter(c=>c.phone===(sp.get('phone')||''));
+  if(method==='POST' && path==='/api/chat'){ const {phone,sender,message}=body; mockChats.push({id:mockChats.length+1,phone,sender,message,created_at:new Date().toISOString()}); saveMock('gb_mock_chats', mockChats); return {id:mockChats.length}; }
+  if(method==='POST' && path==='/api/chat/read') return {ok:true};
+  if(method==='GET' && path==='/api/admin/chats') return [];
+  // --- Customer auth ---
+  if(method==='POST' && path==='/api/auth/register'){
+    const {name,phone,email,password}=body;
+    if(!name||!phone||!email||!password) throw Object.assign(new Error('Semua field wajib diisi.'),{status:400});
+    if(mockCustomers.some(c=>c.phone===phone.replace(/\D/g,'')||c.email===email)) throw Object.assign(new Error('Nomor WhatsApp atau email sudah terdaftar.'),{status:400});
+    const id=mockCustomers.length+1;
+    mockCustomers.push({id,name,phone:phone.replace(/\D/g,''),email:email.toLowerCase(),password,total_orders:0,total_spent:0,last_order:null});
+    saveMock('gb_mock_customers', mockCustomers);
+    return {ok:true,message:'Registrasi berhasil. Silakan login.'};
+  }
+  if(method==='POST' && path==='/api/auth/login'){
+    const {identifier,password}=body;
+    let cust=mockCustomers.find(c=> c.phone===String(identifier).replace(/\D/g,'') || (c.email && c.email.toLowerCase()===String(identifier).toLowerCase()));
+    if(!cust || cust.password!==password) throw Object.assign(new Error('Kredensial tidak valid.'),{status:401});
+    return {ok:true,customer:{id:cust.id,name:cust.name,phone:cust.phone,email:cust.email},token:'mock-customer-token-'+cust.id};
+  }
+  if(method==='POST' && path==='/api/auth/logout') return {ok:true};
+  if(method==='GET' && path==='/api/auth/me'){
+    if(!token||!token.startsWith('mock-customer-token')) throw Object.assign(new Error('Tidak terautentikasi.'),{status:401});
+    const id=parseInt(token.split('-').pop());
+    let c=mockCustomers.find(x=>x.id===id);
+    if(!c) throw Object.assign(new Error('Tidak terautentikasi.'),{status:401});
+    return {customer:{id:c.id,name:c.name,phone:c.phone,email:c.email}};
+  }
+  // fallback
+  console.warn('mockApi unhandled', method, path);
+  return {};
+}
+
+async function api(u,o={}){ if(IS_GH_PAGES){ try{ return await mockApi(u,o); }catch(e){ throw Error(e.message||'Terjadi kesalahan'); } } const headers={'Content-Type':'application/json',...(o.headers||{})};if(typeof state!=="undefined" && state.adminToken) headers['Authorization']='Bearer '+state.adminToken; else if(typeof state!=="undefined" && state.token) headers['Authorization']='Bearer '+state.token;let r=await fetch(u,{...o,headers}),d=await r.json();if(!r.ok)throw Error(d.error||'Terjadi kesalahan');return d}function toast(t){let e=document.querySelector('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2500)}function setRole(r){return;}function saveAuth(){try{localStorage.setItem('gb_customer',JSON.stringify(state.customer));localStorage.setItem('gb_token',state.token)}catch(e){}}function loadAuth(){try{state.customer=JSON.parse(localStorage.getItem('gb_customer')||'null');state.token=localStorage.getItem('gb_token')}catch(e){}}function clearAuth(){state.customer=null;state.token=null;try{localStorage.removeItem('gb_customer');localStorage.removeItem('gb_token')}catch(e){}saveAuth()}function renderNav(){console.log('renderNav() called, role:', state.role);let links=customerNav;const navEl=document.getElementById('nav');if(navEl)navEl.innerHTML=links.map(([id,n,ic])=>`<button class="${state.view===id?'active':''}" onclick="state.view='${id}';render()"><span class="ni">${ic}</span><span class="nav-label">${n}</span></button>`).join(''); }function render(){console.log('render() called, view:', state.view, 'role:', state.role);loadAuth();renderNav();let customer=true;const _headerAction=document.getElementById('headerAction');if(_headerAction)_headerAction.style.display=customer?'none':'';let nt=document.querySelector('#notifTitle'),ns=document.querySelector('#notifSub'),nb=document.querySelector('#notifBox');if(nt)nt.textContent=customer?'Notifikasi Saya':'Notifikasi Admin';if(ns)ns.textContent=customer?'Status & pembayaran pesanan Anda':'Pesanan & pembayaran masuk';if(nb)nb.classList.remove('show');const _title=document.getElementById('title');if(_title)_title.textContent=(state.view==='track'?'Lacak Pesanan':state.view==='account'?'Akun Saya':state.view==='chat'?'Chat Admin':'Pesan Gabin Bar');const _subtitle=document.getElementById('subtitle');if(_subtitle)_subtitle.textContent='Pilih rasa favoritmu dan buat pesanan.';updateCustomerHeader();try{const _cust={shop,track,chat:customerChat,account}; if(!_cust[state.view]) state.view='shop'; (_cust[state.view]||shop)()}catch(e){console.error('View error:', e);toast('Error memuat tampilan: '+e.message)}refreshNotif();clearInterval(notifTimer);notifTimer=setInterval(refreshNotif,15000)}function updateCustomerHeader(){if(state.role!=='customer')return;const actions=document.querySelector('.head-actions');if(!actions)return;if(state.customer){actions.innerHTML=`<div class="notif-wrap"><button class="icon-btn" id="notifBtn" onclick="toggleNotif()">🔔<b class="badge" id="notifBadge" style="display:none">0</b></button><div class="notif-box" id="notifBox"><div class="notif-head"><b id="notifTitle">Notifikasi Saya</b><small id="notifSub">Status & pembayaran pesanan Anda</small></div><div id="notifList"></div></div></div><div class="customer-menu" style="position:relative"><button class="icon-btn" onclick="toggleCustomerMenu()" style="gap:8px;padding:0 12px;font-size:13px"><span>👤</span><span>${escapeHtml(state.customer.name)}</span></button><div class="customer-dropdown" id="customerDropdown" style="display:none;position:absolute;right:0;top:52px;min-width:240px;background:#fffdfb;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(80,48,31,.18);z-index:30;overflow:hidden"><div style="padding:12px;border-bottom:1px solid var(--line)"><b style="font-size:13px">${escapeHtml(state.customer.name)}</b><br><small class="muted">${escapeHtml(state.customer.email)} &nbsp; ${escapeHtml(state.customer.phone||'-')}</small></div><button class="dropdown-item" onclick="state.view='account';render();closeCustomerMenu()" style="width:100%;text-align:left;padding:12px;background:none;border:none;color:var(--ink);font:inherit;cursor:pointer">👤 Profil & Pesanan</button><button class="dropdown-item" onclick="logout()" style="width:100%;text-align:left;padding:12px;background:none;border:none;color:var(--red);font:inherit;cursor:pointer">🚪 Keluar</button></div></div>`;}else{actions.innerHTML=`<div class="notif-wrap"><button class="icon-btn" id="notifBtn" onclick="toggleNotif()">🔔<b class="badge" id="notifBadge" style="display:none">0</b></button><div class="notif-box" id="notifBox"><div class="notif-head"><b id="notifTitle">Notifikasi Saya</b><small id="notifSub">Status & pembayaran pesanan Anda</small></div><div id="notifList"></div></div></div><button class="primary" style="margin-left:8px" onclick="openLoginModal()">Masuk / Daftar</button>`;}}function toggleCustomerMenu(){const dd=document.querySelector('#customerDropdown');if(dd)dd.style.display=dd.style.display==='block'?'none':'block'}function closeCustomerMenu(){const dd=document.querySelector('#customerDropdown');if(dd)dd.style.display='none'}document.addEventListener('click',e=>{if(!e.target.closest('.customer-menu'))closeCustomerMenu()});function logout(){clearAuth();try{localStorage.removeItem('gb_phone')}catch(e){}trackPhone=null;toast('Berhasil keluar');state.view='shop';render()}async function openLoginModal(){const isLogin=arguments[0]===true;formOpen(isLogin?'Masuk':'Daftar Akun',isLogin?loginFormHtml():registerFormHtml(),isLogin?handleLogin:handleRegister)}function loginFormHtml(){return `<div class="field"><label>EMAIL / NOMOR WHATSAPP</label><input name="identifier" required placeholder="Email atau nomor WhatsApp"></div><div class="field"><label>PASSWORD</label><input name="password" type="password" required placeholder="Minimal 6 karakter"></div><div class="actions"><button type="button" class="secondary" onclick="closeModal()">Batal</button><button class="primary">Masuk</button></div><p class="muted" style="text-align:center;margin-top:12px;font-size:12px">Belum punya akun? <button type="button" class="secondary" style="padding:0;background:none;color:var(--brown)" onclick="openLoginModal(false)">Daftar di sini</button></p>`}function registerFormHtml(){return `<div class="field"><label>NAMA LENGKAP</label><input name="name" required placeholder="Nama lengkap"></div><div class="field"><label>NOMOR WHATSAPP</label><input name="phone" required placeholder="Contoh: 081234567890 (11-12 digit)" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,12)"></div><div class="field"><label>EMAIL</label><input name="email" type="email" required placeholder="email@domain.com"></div><div class="field"><label>PASSWORD</label><input name="password" type="password" required placeholder="Minimal 6 karakter" minlength="6"></div><div class="actions"><button type="button" class="secondary" onclick="openLoginModal(true)">Batal</button><button class="primary">Daftar</button></div><p class="muted" style="text-align:center;margin-top:12px;font-size:12px">Sudah punya akun? <button type="button" class="secondary" style="padding:0;background:none;color:var(--brown)" onclick="openLoginModal(true)">Masuk di sini</button></p>`}async function handleLogin(e){e.preventDefault();const d=Object.fromEntries(new FormData(e.target));try{const r=await api('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});state.customer=r.customer;state.token=r.token;saveAuth();closeModal();toast('Selamat datang, '+r.customer.name+'!');render()}catch(err){toast(err.message)}}async function handleRegister(e){e.preventDefault();const d=Object.fromEntries(new FormData(e.target));const phone=d.phone.replace(/\\D/g,'');if(!(phone.length===11||phone.length===12))return toast('Nomor WhatsApp harus 11-12 digit.');if(d.password.length<6)return toast('Password minimal 6 karakter.');try{await api('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:d.name,phone,email:d.email.toLowerCase(),password:d.password})});closeModal();toast('Registrasi berhasil! Cek email untuk verifikasi akun.');openLoginModal(true)}catch(err){toast(err.message)}}async function account(){if(!state.customer){state.view='shop';render();return toast('Silakan masuk terlebih dahulu.');}if(state.customer.phone) trackPhone=state.customer.phone; let phone=(state.customer.phone||trackPhone||'').trim(); if(!phone){document.getElementById('content').innerHTML=`<div class="card"><h2>Profil Saya</h2><p class="muted">Nomor WhatsApp tidak ditemukan. Silakan lengkapi profil atau buat pesanan dahulu.</p></div>`; return;} let os=await api('/api/customer/orders?phone='+encodeURIComponent(phone));document.getElementById('content').innerHTML=`<div class="card"><h2>Profil Saya</h2><div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:20px;padding:16px;background:#fbf5ef;border-radius:12px"><div style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#7a5340,#5b3a2b);color:#fff;display:grid;place-items:center;font-size:24px;font-weight:800">${escapeHtml(state.customer.name[0].toUpperCase())}</div><div><h3 style="margin:0 0 4px">${escapeHtml(state.customer.name)}</h3><p class="muted" style="margin:0">📱 ${escapeHtml(state.customer.phone||'-')} &nbsp; | &nbsp; 📧 ${escapeHtml(state.customer.email)}</p></div></div><h3 style="margin:16px 0 10px">Riwayat Pesanan</h3>${os.length?`<div style="display:grid;gap:12px">${os.map(o=>`<div class="card" style="padding:16px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap"><div><b>${o.code}</b><br><small class="muted">${new Date(o.created_at+'Z').toLocaleString('id-ID')}</small></div><div style="text-align:right"><span class="status ${o.status==='selesai'?'done':'process'}">${o.status.replace('_',' ')}</span><br><small class="muted">${o.payment_method=== 'tunai' ? '💵' : o.payment_method==='transfer' ? '🏦' : o.payment_method==='qris' ? '📱' : '💳'} ${o.payment_method}</small><br><b>${rupiah(o.total)}</b></div></div><div style="margin-top:12px;padding:10px;background:#fdf7f1;border-radius:10px;border:1px solid var(--line)">${(o.items&&o.items.length?o.items.map(it=>`<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px dashed #eddfd4"><span>${escapeHtml(it.product_name)} <small class="muted">x${it.quantity}</small></span><span><small class="muted">${rupiah(it.unit_price)} \u00d7 ${it.quantity}</small> <b>${rupiah(it.subtotal)}</b></span></div>`).join(''):'<small class="muted">Detail produk tidak tersedia.</small>')}</div></div>`).join('')}</div>`:'<p class="muted" style="padding:20px;text-align:center">Belum ada riwayat pesanan.</p>'}</div>`}
 async function getProducts(){state.products=await api('/api/products');return state.products}async function nextStatus(id,s){let seq={menunggu:'diproses',diproses:'siap_diambil',siap_diambil:'selesai'};if(!seq[s])return toast('Pesanan sudah selesai');await api('/api/orders/'+id+'/status',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:seq[s]})});toast('Status diperbarui');orders()}async function packages(){let ps=await api('/api/packages?all=1');document.getElementById('content').innerHTML=`<button class="primary" onclick="openPackageForm()">+ Tambah paket</button><div class="products" style="margin-top:15px">${ps.length?ps.map(p=>`<article class="card product"><div class="art">🎁</div><section><h3>${p.name} ${p.active?'':'<span class="status process">Nonaktif</span>'}</h3><p>${p.description||'-'}</p><div class="price-row"><b>${rupiah(p.price)}</b><div style="display:flex;gap:6px"><button class="secondary" onclick="openEditPackage(${p.id})">Edit</button><button class="secondary" style="color:var(--red);border-color:#f0c9c2" onclick="deletePackage(${p.id})">Hapus</button></div></div></section></article>`).join(''):'<p class="muted">Belum ada paket.</p>'}</div>`}
 async function deletePackage(id){if(!confirm('Hapus paket ini? Paket yang sudah pernah dipesan tidak bisa dihapus.')) return; try{ await api('/api/packages/'+id,{method:'DELETE'}); toast('Paket dihapus'); packages(); }catch(e){ toast(e.message); }}
 async function openEditPackage(id){let ps=await api('/api/packages?all=1'),p=ps.find(x=>x.id===id);if(!p)return toast('Paket tidak ditemukan');formOpen('Edit Paket',`<div class="field"><label>NAMA PAKET</label><input name="name" value="${escapeHtml(p.name)}" required></div><div class="field"><label>DESKRIPSI</label><textarea name="description">${escapeHtml(p.description||'')}</textarea></div><div class="field"><label>HARGA</label><input name="price" type="number" value="${p.price}" required></div><div class="field"><label><input name="active" type="checkbox" ${p.active?'checked':''}> Paket aktif</label></div><div class="actions"><button type="button" class="secondary" onclick="closeModal()">Batal</button><button class="primary">Simpan perubahan</button></div>`,async e=>{e.preventDefault();const _form=document.getElementById('form');let d=Object.fromEntries(new FormData(_form));d.active=_form.active.checked;try{await api('/api/packages/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});closeModal();toast('Paket diperbarui');packages()}catch(err){toast(err.message)}})}function addCart(id){let p=state.products.find(x=>x.id===id),x=state.cart.find(x=>x.id===id),cur=x?x.qty:0;if(p.stock<1)return toast('Stok habis');if(cur+1>p.stock)return toast('Stok hanya '+p.stock);if(x)x.qty++;else state.cart.push({id:p.id,name:p.name,price:p.price,emoji:p.emoji,qty:1,stock:p.stock});renderCart();toast('Produk ditambahkan')}function renderCart(){let e=document.querySelector('#cart');if(!e)return;let total=state.cart.reduce((s,x)=>s+x.price*x.qty,0);e.innerHTML=state.cart.length?state.cart.map((x,i)=>`<div class="cart-row"><b>${x.emoji}</b><div>${x.name}<br><small>${rupiah(x.price)}</small></div><div class="qty"><button onclick="changeQty(${i},-1)">-</button> ${x.qty} <button onclick="changeQty(${i},1)" ${x.stock!=null&&x.qty>=x.stock?'disabled':''}>+</button></div></div>`).join('')+`<div class="total"><span>Total</span><span>${rupiah(total)}</span></div><button class="primary" style="width:100%;margin-top:14px" onclick="openCheckout()">Buat pesanan</button>`:'<p class="muted">Keranjang masih kosong.</p>'}function changeQty(i,n){let x=state.cart[i];if(n>0&&x.stock!=null&&x.qty+n>x.stock)return toast('Stok hanya '+x.stock);x.qty+=n;if(x.qty<1)state.cart.splice(i,1);renderCart()}function formOpen(title,html,submit){document.getElementById('modalTitle').textContent=title;const _form=document.getElementById('form');_form.innerHTML=html;_form.onsubmit=submit;document.getElementById('modal').classList.add('show')}function closeModal(){document.getElementById('modal').classList.remove('show')}function handleProductImage(input, previewId, hiddenId){const file=input.files&&input.files[0]; const preview=document.getElementById(previewId); const hidden=document.getElementById(hiddenId); if(!file){ if(preview) preview.innerHTML='<span>Belum ada foto</span>'; if(hidden) hidden.value=''; return; } if(!file.type.startsWith('image/')){ toast('File harus berupa gambar'); input.value=''; return; } if(file.size>550*1024){ toast('Ukuran maksimal 500KB. Kompres dulu.'); input.value=''; return; } const reader=new FileReader(); reader.onload=()=>{ const dataUrl=reader.result; if(hidden) hidden.value=dataUrl; if(preview) preview.innerHTML='<img src="'+dataUrl.replace(/"/g,'&quot;')+'" alt="preview">'; }; reader.readAsDataURL(file); }
@@ -306,6 +603,7 @@ function sendAdminChat(){let m=document.querySelector('#chatMsg'),c=state.chatLi
 function openAdminChat(id){state.chatWith=id;chat()}
 async function orders(){let os=await api('/api/orders');document.getElementById('content').innerHTML=`<div class="card"><h2>Daftar Pesanan</h2><p class="muted">Pantau status pesanan dan pembayaran. Pembayaran customer masuk otomatis ke notifikasi.</p><table class="table"><tr><th>KODE</th><th>PELANGGAN</th><th>TOTAL</th><th>PEMBAYARAN</th><th>STATUS</th><th>AKSI</th></tr>${os.length?os.map(o=>`<tr><td><b>${o.code}</b></td><td>${o.customer_name||'-'}<br><small class="muted">${o.phone||''}</small></td><td>${rupiah(o.total)}</td><td>${o.payment_status==='dibayar'?`<span class="status done">Lunas</span>`:`<span class="status wait">Belum bayar</span>`}<br><small class="muted">${payMethodLabel2(o.payment_method)}${o.payment_bank?' · '+o.payment_bank:''}</small></td><td><span class="status ${o.status==='selesai'?'done':'process'}">${o.status.replace('_',' ')}</span></td><td>${o.payment_status!=='dibayar'?`<button class="secondary" onclick="markPaid(${o.id},'${o.payment_method||'tunai'}')">Konfirmasi lunas</button> `:''}<button class="secondary" onclick="nextStatus(${o.id},'${o.status}')">Ubah status</button></td></tr>`).join(''):'<tr><td colspan="6" class="muted">Belum ada pesanan.</td></tr>'}</table></div>`}
 async function markPaid(id,method){try{await api('/api/orders/'+id+'/payment',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentStatus:'dibayar',method})});toast('Pembayaran dikonfirmasi lunas');adminNotif();orders()}catch(err){toast(err.message)}}getProducts().then(render).catch(e=>toast(e.message));
+
 
 
 
