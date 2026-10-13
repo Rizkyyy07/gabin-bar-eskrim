@@ -1,10 +1,11 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new DatabaseSync(path.join(DATA_DIR, 'gabin-bar.db'));
 db.exec(`
@@ -22,9 +23,13 @@ db.exec(`
    CREATE TABLE IF NOT EXISTS reviews (id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL, product_id INTEGER NOT NULL, rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5), comment TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id), FOREIGN KEY(product_id) REFERENCES products(id));
    CREATE TABLE IF NOT EXISTS chats (id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL, sender TEXT NOT NULL CHECK(sender IN ('customer','admin')), message TEXT NOT NULL, read_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customer_id) REFERENCES customers(id));
 `);
+db.exec(`CREATE TABLE IF NOT EXISTS admin_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
 ['payment_method TEXT', "payment_status TEXT DEFAULT 'belum_dibayar'", 'payment_bank TEXT', 'payment_proof TEXT', 'paid_at TEXT'].forEach(col => { try { db.exec('ALTER TABLE orders ADD COLUMN ' + col); } catch {} });
 ['recipient TEXT', 'customer_id INTEGER', 'order_id INTEGER'].forEach(col => { try { db.exec('ALTER TABLE notifications ADD COLUMN ' + col); } catch {} });
 try { db.exec('ALTER TABLE products ADD COLUMN image TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN email TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN password TEXT'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0'); } catch {}
 try { db.exec("UPDATE orders SET payment_status='dibayar' WHERE status='selesai' AND (payment_status IS NULL OR payment_status='')"); } catch {}
 if (db.prepare('SELECT COUNT(*) AS count FROM products').get().count === 0) {
   const insert = db.prepare('INSERT INTO products (name, description, price, discount_percent, stock, emoji) VALUES (?, ?, ?, ?, ?, ?)');
@@ -32,20 +37,38 @@ if (db.prepare('SELECT COUNT(*) AS count FROM products').get().count === 0) {
   db.prepare("INSERT INTO packages (name,description,price) VALUES ('Paket Manis Berdua','2 rasa pilihan spesial',62000)").run();
   db.prepare("INSERT INTO preorders (name,order_start,order_end,pickup_date) VALUES ('Weekend Treats','2026-10-12','2026-10-16','2026-10-17')").run();
   db.prepare("INSERT INTO users (name,role) VALUES ('Nadya Putri','admin'),('Kasir Gabin','kasir')").run();
+  try {
+    const adminHash=crypto.createHash('sha256').update('admin123').digest('hex');
+    if(!db.prepare('SELECT id FROM users WHERE email=?').get('admin@gabinbar.local')){
+      db.prepare("INSERT INTO users (name,role,email,password,email_verified) VALUES ('Admin Gabin','admin','admin@gabinbar.local',?,1)").run(adminHash);
+    }
+  } catch(e){ console.error('seed admin', e.message); }
 }
+// ensure default admin outside seed
+try{
+  const adminHash=crypto.createHash('sha256').update('admin123').digest('hex');
+  if(!db.prepare("SELECT id FROM users WHERE email='admin@gabinbar.local'").get()){
+    // ensure email column exists first (already altered above) - insert if missing
+    try{ db.prepare("INSERT INTO users (name,role,email,password,email_verified) VALUES ('Admin Gabin','admin','admin@gabinbar.local',?,1)").run(adminHash); }catch(e){ console.error('seed admin outside', e.message); }
+  }
+} catch(e){ console.error('seed admin check', e.message); }
 function json(res, code, body) { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8'}); res.end(JSON.stringify(body)); }
 function readBody(req) { return new Promise((resolve,reject)=>{let body='';req.on('data',c=>body+=c);req.on('end',()=>{try{resolve(body?JSON.parse(body):{})}catch{reject(new Error('JSON tidak valid'))}});}); }
 
 // --- Auth helpers ---
-const crypto = require('node:crypto');
 function hashPassword(pwd) { return crypto.createHash('sha256').update(pwd).digest('hex'); }
 function genToken() { return crypto.randomBytes(32).toString('hex'); }
 function getCustomerFromToken(token) {
   if(!token) return null;
   const sess = db.prepare('SELECT cs.*, c.* FROM customer_sessions cs JOIN customers c ON c.id=cs.customer_id WHERE cs.token=? AND cs.expires_at > datetime(\'now\')').get(token);
   if(!sess) return null;
-  // Return customer with correct id (customer_id, not session id)
   return {...sess, id: sess.customer_id};
+}
+function getAdminFromToken(token){
+  if(!token) return null;
+  const sess=db.prepare('SELECT s.*, u.* FROM admin_sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires_at > datetime(\'now\')').get(token);
+  if(!sess) return null;
+  return {...sess, id: sess.user_id};
 }
 function sendVerificationEmail(email, token, name) {
   // Mock email sending - in production use nodemailer or similar
@@ -136,6 +159,77 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
      const rows=db.prepare(`SELECT o.id,o.code,o.status,o.notes,o.total,o.payment_method,o.payment_bank,o.payment_status,o.created_at,o.updated_at FROM orders o JOIN customers c ON c.id=o.customer_id WHERE c.phone=? ORDER BY o.id DESC`).all(phone);
       const itemStmt=db.prepare('SELECT product_name, quantity, unit_price, subtotal FROM order_items WHERE order_id=?');
       return json(res,200,rows.map(o=>({...o,items:itemStmt.all(o.id)})));
+   }
+   // --- Admin Auth API ---
+   if(req.method==='POST' && url.pathname==='/api/admin/auth/login'){
+     const {identifier, password}=await readBody(req);
+     if(!identifier?.trim()||!password) return json(res,400,{error:'Email/username dan password wajib diisi.'});
+     let u=null;
+     // try email first (case-insensitive)
+     try{ u=db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(identifier.trim()); }catch(e){}
+     if(!u){
+       try{ u=db.prepare('SELECT * FROM users WHERE name=?').get(identifier.trim()); }catch(e){}
+     }
+     if(!u) u=db.prepare('SELECT * FROM users WHERE email=?').get(identifier.trim().toLowerCase());
+     if(!u || !u.password || u.password!==hashPassword(password)) return json(res,401,{error:'Kredensial admin tidak valid.'});
+     const token=genToken();
+     const expires=new Date(Date.now()+30*24*60*60*1000).toISOString();
+     db.prepare('INSERT INTO admin_sessions (user_id,token,expires_at) VALUES (?,?,?)').run(u.id, token, expires);
+     const {password:_, ...safe}=u;
+     return json(res,200,{ok:true, admin:safe, token});
+   }
+   if(req.method==='POST' && url.pathname==='/api/admin/auth/logout'){
+     const auth=req.headers['authorization']||'';
+     const token=auth.replace('Bearer ','');
+     if(token) db.prepare('DELETE FROM admin_sessions WHERE token=?').run(token);
+     return json(res,200,{ok:true});
+   }
+   if(req.method==='GET' && url.pathname==='/api/admin/auth/me'){
+     const auth=req.headers['authorization']||'';
+     const token=auth.replace('Bearer ','');
+     const adm=getAdminFromToken(token);
+     if(!adm) return json(res,401,{error:'Tidak terautentikasi.'});
+     const {password:_, ...safe}=adm;
+     return json(res,200,{admin:safe});
+   }
+   if(req.method==='GET' && url.pathname==='/api/admin/users'){
+     return json(res,200,db.prepare('SELECT id,name,role,email,phone,created_at FROM users ORDER BY id').all());
+   }
+   if(req.method==='POST' && url.pathname==='/api/admin/users'){
+     const {name,email,password,role='admin',phone=''}=await readBody(req);
+     if(!name?.trim()||!email?.trim()||!password) return json(res,400,{error:'Nama, email, dan password wajib diisi.'});
+     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(res,400,{error:'Format email tidak valid.'});
+     if(password.length<6) return json(res,400,{error:'Password minimal 6 karakter.'});
+     if(!['admin','kasir'].includes(role)) return json(res,400,{error:'Role tidak valid.'});
+     if(db.prepare('SELECT id FROM users WHERE lower(email)=lower(?)').get(email.trim())) return json(res,400,{error:'Email sudah terdaftar.'});
+     const r=db.prepare('INSERT INTO users (name,role,email,password,email_verified,phone) VALUES (?,?,?,?,1,?)').run(name.trim(), role, email.toLowerCase().trim(), hashPassword(password), phone.trim()||null);
+     return json(res,201,{id:Number(r.lastInsertRowid)});
+   }
+   const adminUserMatch=url.pathname.match(/^\/api\/admin\/users\/(\d+)$/);
+   if(adminUserMatch){
+     const id=adminUserMatch[1];
+     if(req.method==='PATCH'){
+       const u=db.prepare('SELECT * FROM users WHERE id=?').get(id); if(!u) return json(res,404,{error:'Admin tidak ditemukan'});
+       const {name,email,password,role,phone}=await readBody(req);
+       if(email && email.toLowerCase().trim()!== (u.email||'').toLowerCase() && db.prepare('SELECT id FROM users WHERE lower(email)=lower(?) AND id!=?').get(email.trim(), id)) return json(res,400,{error:'Email sudah terpakai.'});
+       if(password && password.length<6) return json(res,400,{error:'Password minimal 6 karakter.'});
+       if(role && !['admin','kasir'].includes(role)) return json(res,400,{error:'Role tidak valid.'});
+       db.prepare('UPDATE users SET name=?, email=?, password=?, role=?, phone=? WHERE id=?').run(
+         name?.trim()||u.name,
+         (email?email.toLowerCase().trim():u.email),
+         (password?hashPassword(password):u.password),
+         role||u.role,
+         (phone!==undefined? (phone.trim()||null) : u.phone),
+         id
+       );
+       return json(res,200,{ok:true});
+     }
+     if(req.method==='DELETE'){
+       if(db.prepare('SELECT COUNT(*) c FROM users').get().c <=1) return json(res,400,{error:'Tidak bisa hapus admin terakhir.'});
+       db.prepare('DELETE FROM admin_sessions WHERE user_id=?').run(id);
+       db.prepare('DELETE FROM users WHERE id=?').run(id);
+       return json(res,200,{ok:true});
+     }
    }
    // --- Customer Auth API ---
    if(req.method==='POST' && url.pathname==='/api/auth/register') {
@@ -348,4 +442,4 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
   return json(res,404,{error:'Endpoint tidak ditemukan'});
 }
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.ico':'image/x-icon'};
-http.createServer(async(req,res)=>{const url=new URL(req.url,'http://localhost');try{if(url.pathname.startsWith('/api/'))return await api(req,res,url);let file=path.join(ROOT,url.pathname==='/'?'index.html':url.pathname);if(!file.startsWith(ROOT)||!fs.existsSync(file)||fs.statSync(file).isDirectory())file=path.join(ROOT,'index.html');res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream'});fs.createReadStream(file).pipe(res)}catch(e){console.error(e);json(res,500,{error:'Terjadi kesalahan pada server.'})}}).listen(process.env.PORT||3000,()=>console.log(`Gabin Bar berjalan di http://localhost:${process.env.PORT||3000}`));
+http.createServer(async(req,res)=>{const url=new URL(req.url,'http://localhost');try{if(url.pathname.startsWith('/api/'))return await api(req,res,url);let file=path.join(ROOT,url.pathname==='/'?'index.html':url.pathname);if(!file.startsWith(ROOT)||!fs.existsSync(file)||fs.statSync(file).isDirectory())file=path.join(ROOT,'index.html');res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream'});fs.createReadStream(file).pipe(res)}catch(e){console.error(e);json(res,500,{error:'Terjadi kesalahan pada server.'})}}).listen(Number(process.env.PORT)||3000,()=>console.log(`Gabin Bar berjalan di http://localhost:${process.env.PORT||3000}`));

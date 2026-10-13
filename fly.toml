@@ -1,0 +1,29 @@
+app = "gabin-bar-eskim"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  DATA_DIR = "/data"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512
+
+# SQLite butuh volume persisten (jangan hapus)
+# Buat sekali: fly volumes create gabin_data --region sin --size 1
+[[mounts]]
+  source = "gabin_data"
+  destination = "/data"
