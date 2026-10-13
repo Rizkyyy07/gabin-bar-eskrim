@@ -403,15 +403,23 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
    }
    const productMatch=url.pathname.match(/^\/api\/admin\/products\/(\d+)$/);
    if(req.method==='POST' && url.pathname==='/api/admin/products') {
-     const {name,description='',price,stock,emoji='🍨',category='Reguler',image=''}=await readBody(req);
+     const {name,description='',price,stock,emoji='🍨',category='Reguler',image='',discount_percent=0}=await readBody(req);
+      const _disc=Math.min(100,Math.max(0,Number(discount_percent||0)));
+      if(!Number.isFinite(_disc)||_disc<0||_disc>100) return json(res,400,{error:'Diskon harus 0-100.'});
      if(!name?.trim() || !Number.isFinite(Number(price)) || !Number.isFinite(Number(stock))) return json(res,400,{error:'Nama, harga, dan stok wajib diisi.'});
-     const r=db.prepare('INSERT INTO products (name,description,price,stock,emoji,category,image) VALUES (?,?,?,?,?,?,?)').run(name.trim(),description,Number(price),Number(stock),emoji,category,image||null);
+     const r=db.prepare('INSERT INTO products (name,description,price,discount_percent,stock,emoji,category,image) VALUES (?,?,?,?,?,?,?,?)').run(name.trim(),description,Number(price),_disc,Number(stock),emoji,category,image||null);
      return json(res,201,{id:Number(r.lastInsertRowid)});
    }
    if(req.method==='PATCH' && productMatch) {
      const {name,description,price,stock,active,discount_percent,emoji,category,image}=await readBody(req);
      const p=db.prepare('SELECT * FROM products WHERE id=?').get(productMatch[1]); if(!p) return json(res,404,{error:'Produk tidak ditemukan'});
-     db.prepare('UPDATE products SET name=?,description=?,price=?,stock=?,active=?,discount_percent=?,emoji=?,category=?,image=? WHERE id=?').run(name??p.name,description??p.description,price??p.price,stock??p.stock,active===undefined?p.active:(active?1:0),discount_percent??p.discount_percent,emoji??p.emoji,category??p.category,image!==undefined?image:p.image,productMatch[1]);
+     let _discVal=p.discount_percent;
+      if(discount_percent!==undefined){
+        const _d=Number(discount_percent);
+        if(!Number.isFinite(_d)||_d<0||_d>100) return json(res,400,{error:'Diskon harus 0-100.'});
+        _discVal=Math.min(100,Math.max(0,_d));
+      }
+      db.prepare('UPDATE products SET name=?,description=?,price=?,stock=?,active=?,discount_percent=?,emoji=?,category=?,image=? WHERE id=?').run(name??p.name,description??p.description,price??p.price,stock??p.stock,active===undefined?p.active:(active?1:0),_discVal,emoji??p.emoji,category??p.category,image!==undefined?image:p.image,productMatch[1]);
      return json(res,200,{ok:true});
    }
       if(req.method==='DELETE' && productMatch) {
