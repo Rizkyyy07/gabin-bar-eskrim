@@ -242,6 +242,7 @@ h1{font-size:32px;color:var(--brown-2)}
 
 
 
+
 const state={role:'admin',view:'dashboard',products:[],cart:[],customer:null,token:null,admin:null,adminToken:null};const adminNav=[['dashboard','Dashboard','📊'],['orders','Pesanan','🧾'],['products','Manajemen Produk','🍨'],['packages','Manajemen Paketan','🎁'],['customers','Data Pelanggan','👥'],['reviews','Ulasan','⭐'],['chat','Chat','💬'],['analytics','Analitik','📈'],['adminUsers','Akun Admin','👑']];const customerNav=[['shop','Pesan Gabin Bar','🛒'],['track','Lacak Pesanan','🔎'],['chat','Chat Admin','💬'],['account','Akun Saya','👤']];const rupiah=n=>'Rp '+Number(n||0).toLocaleString('id-ID');
 const IS_GH_PAGES = location.hostname.includes('github.io');
 const MOCK_PRODUCTS_DEFAULT = [
@@ -686,8 +687,7 @@ function toggleNotif(){let box=document.querySelector('#notifBox');if(!box)retur
 
 function requireAdmin(){ if(!state.admin || !state.adminToken){ toast('Silakan login sebagai admin.'); openAdminLogin(); return false; } return true; }
 async function openAdminLogin(){
-  formOpen('Login Admin', `<p class="muted">Masuk untuk mengelola toko. Gunakan <b>admin@gabinbar.local</b> / <b>123456</b> atau <b>username</b> / <b>123456</b><br><small class="muted">Kosongkan email bila pakai username. (admin123 juga diterima)</small></p>
-<div class="field"><label>EMAIL</label><input name="identifier" placeholder="" required></div>
+  formOpen('Login Admin', `<div class="field"><label>EMAIL</label><input name="identifier" placeholder="" required></div>
 <div class="field"><label>PASSWORD</label><input name="password" type="password" required></div>
 <div class="actions"><button type="button" class="secondary" onclick="closeModal()">Batal</button><button class="primary">Masuk</button></div>`, async e=>{
     e.preventDefault();
@@ -756,6 +756,7 @@ function sendAdminChat(){let m=document.querySelector('#chatMsg'),c=state.chatLi
 function openAdminChat(id){state.chatWith=id;chat()}
 async function orders(){let os=await api('/api/orders');document.getElementById('content').innerHTML=`<div class="card"><h2>Daftar Pesanan</h2><p class="muted">Pantau status pesanan dan pembayaran. Pembayaran customer masuk otomatis ke notifikasi.</p><div style="overflow:auto"><table class="table"><tr><th>KODE</th><th>PELANGGAN</th><th>KETERANGAN</th><th>TOTAL</th><th>PEMBAYARAN</th><th>STATUS</th><th>AKSI</th></tr>${os.length?os.map(o=>`<tr><td><b>${o.code}</b><br><small class="muted">${new Date(o.created_at+'Z').toLocaleString('id-ID')}</small></td><td>${escapeHtml(o.customer_name||'-')}<br><small class="muted">${escapeHtml(o.phone||'')}</small></td><td style="min-width:210px;max-width:280px">${(o.items&&o.items.length?o.items.map(it=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:3px 0;border-bottom:1px dashed #eddfd4"><span>${escapeHtml(it.product_name)} <small class="muted">x${it.quantity}</small></span><span style="white-space:nowrap"><small class="muted">${rupiah(it.unit_price)} \u00d7 ${it.quantity}</small> <b>${rupiah(it.subtotal)}</b></span></div>`).join(''):'<span class="muted" style="font-size:12px">-</span>')}${o.notes?`<div style="margin-top:6px;font-size:11px;color:#9a8377;background:#fdf7f1;padding:6px 8px;border-radius:8px;border:1px solid var(--line)">\u2709 ${escapeHtml(o.notes)}</div>`:''}</td><td><b>${rupiah(o.total)}</b></td><td>${o.payment_status==='dibayar'?`<span class="status done">Lunas</span>`:`<span class="status wait">Belum bayar</span>`}<br><small class="muted">${payMethodLabel2(o.payment_method)}${o.payment_bank?' \u00b7 '+escapeHtml(o.payment_bank):''}</small></td><td><span class="status ${o.status==='selesai'?'done':'process'}">${o.status.replace('_',' ')}</span></td><td><div style="display:flex;gap:6px;flex-wrap:wrap">${o.payment_status!=='dibayar'?`<button class="secondary" onclick="markPaid(${o.id},'${o.payment_method||'tunai'}')">Konfirmasi lunas</button>`:''}<button class="secondary" onclick="nextStatus(${o.id},'${o.status}')">Ubah status</button></div></td></tr>`).join(''):'<tr><td colspan="7" class="muted">Belum ada pesanan.</td></tr>'}</table></div></div>`}
 async function markPaid(id,method){try{await api('/api/orders/'+id+'/payment',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentStatus:'dibayar',method})});toast('Pembayaran dikonfirmasi lunas');adminNotif();orders()}catch(err){toast(err.message)}}getProducts().then(render).catch(e=>toast(e.message));
+
 
 
 
