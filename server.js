@@ -25,6 +25,7 @@ db.exec(`
 `);
 db.exec(`CREATE TABLE IF NOT EXISTS admin_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, token TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
 ['payment_method TEXT', "payment_status TEXT DEFAULT 'belum_dibayar'", 'payment_bank TEXT', 'payment_proof TEXT', 'paid_at TEXT'].forEach(col => { try { db.exec('ALTER TABLE orders ADD COLUMN ' + col); } catch {} });
+['card_brand TEXT','card_last4 TEXT','card_holder TEXT','qris_payload TEXT','qris_expires TEXT'].forEach(col=>{ try{ db.exec('ALTER TABLE orders ADD COLUMN '+col);}catch{} });
 ['recipient TEXT', 'customer_id INTEGER', 'order_id INTEGER'].forEach(col => { try { db.exec('ALTER TABLE notifications ADD COLUMN ' + col); } catch {} });
 try { db.exec('ALTER TABLE products ADD COLUMN image TEXT'); } catch {}
 try { db.exec('ALTER TABLE users ADD COLUMN email TEXT'); } catch {}
@@ -80,7 +81,7 @@ function sendOrderConfirmationEmail(email, name, orderCode, total) {
   console.log(`\n=== KONFIRMASI PESANAN ===\nKepada: ${name} <${email}>\nPesanan: ${orderCode}\nTotal: Rp ${Number(total).toLocaleString('id-ID')}\n========================\n`);
   return Promise.resolve();
 }
- function listOrders() { const rows=db.prepare(`SELECT o.id,o.code,o.type,o.status,o.notes,o.total,o.payment_method,o.payment_bank,o.payment_status,o.payment_proof,o.paid_at,o.created_at,c.name customer_name,c.phone FROM orders o LEFT JOIN customers c ON c.id=o.customer_id ORDER BY o.id DESC`).all(); const itemStmt=db.prepare('SELECT product_name, quantity, unit_price, subtotal FROM order_items WHERE order_id=?'); return rows.map(o=>({...o,items:itemStmt.all(o.id)})); }
+ function listOrders() { const rows=db.prepare(`SELECT o.id,o.customer_id,o.code,o.type,o.status,o.notes,o.total,o.payment_method,o.payment_bank,o.payment_status,o.card_brand,o.card_last4,o.card_holder,o.qris_payload,o.payment_proof,o.paid_at,o.created_at,c.name customer_name,c.phone,c.email customer_email FROM orders o LEFT JOIN customers c ON c.id=o.customer_id ORDER BY o.id DESC`).all(); const itemStmt=db.prepare('SELECT product_name, quantity, unit_price, subtotal FROM order_items WHERE order_id=?'); return rows.map(o=>({...o,items:itemStmt.all(o.id)})); }
 function makeCode(id) { return '#GB-' + String(id).padStart(4,'0'); }
 async function api(req,res,url) {
    if(req.method==='GET' && url.pathname==='/api/products') return json(res,200,db.prepare('SELECT * FROM products WHERE active=1 ORDER BY id').all());
@@ -99,10 +100,59 @@ async function api(req,res,url) {
       if(from){ conds.push("date(o.created_at,'localtime')>=?"); params.push(from); }
       if(to){ conds.push("date(o.created_at,'localtime')<=?"); params.push(to); }
       const where=conds.length?'WHERE '+conds.join(' AND '):'';
-      const sql=`SELECT c.id,c.name,c.phone,c.created_at,? AS customer_type,COUNT(o.id) AS total_orders,COALESCE(SUM(o.total),0) AS total_spent,MAX(o.created_at) AS last_order FROM customers c JOIN orders o ON o.customer_id=c.id ${where} GROUP BY c.id ORDER BY last_order DESC, c.id DESC`;
+      const sql=`SELECT c.id,c.name,c.phone,c.email,c.created_at,? AS customer_type,COUNT(o.id) AS total_orders,COALESCE(SUM(o.total),0) AS total_spent,MAX(o.created_at) AS last_order FROM customers c LEFT JOIN orders o ON o.customer_id=c.id ${where} GROUP BY c.id ORDER BY last_order DESC, c.id DESC`;
       return json(res,200,db.prepare(sql).all(type||'semua',...params));
     }
-if(req.method==='GET' && url.pathname==='/api/analytics') {
+    const customerMatch=url.pathname.match(/^\/api\/customers\/(\d+)$/);
+    if(customerMatch){
+      const cid=customerMatch[1];
+      const existing=db.prepare('SELECT * FROM customers WHERE id=?').get(cid);
+      if(!existing) return json(res,404,{error:'Pelanggan tidak ditemukan'});
+      if(req.method==='PATCH'){
+        const {name,phone,email}=await readBody(req);
+        if(phone){
+          const digits=phone.replace(/\D/g,'');
+          if(digits.length!==11 && digits.length!==12) return json(res,400,{error:'Nomor WhatsApp harus 11-12 digit.'});
+          if(db.prepare('SELECT id FROM customers WHERE phone=? AND id!=?').get(digits,cid)) return json(res,400,{error:'Nomor WhatsApp sudah terpakai pelanggan lain.'});
+        }
+        if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(res,400,{error:'Format email tidak valid.'});
+        if(email && db.prepare('SELECT id FROM customers WHERE lower(email)=lower(?) AND id!=?').get(email.trim(),cid)) return json(res,400,{error:'Email sudah terpakai pelanggan lain.'});
+        const newName=name!==undefined?(name.trim()||existing.name):existing.name;
+        const newPhone=phone!==undefined?phone.replace(/\D/g,''):existing.phone;
+        const newEmail=email!==undefined?(email.trim()?email.toLowerCase().trim():null):existing.email;
+        db.prepare('UPDATE customers SET name=?, phone=?, email=? WHERE id=?').run(newName,newPhone,newEmail,cid);
+        return json(res,200,{ok:true});
+      }
+      if(req.method==='DELETE'){
+        // Izinkan hapus walau punya pesanan: hapus cascade + kembalikan stok pesanan aktif
+        try{
+          db.exec('BEGIN');
+          const custOrders=db.prepare('SELECT id,status FROM orders WHERE customer_id=?').all(cid);
+          for(const ord of custOrders){
+            if(ord.status!=='dibatalkan' && ord.status!=='selesai'){
+              const items=db.prepare('SELECT product_id, quantity FROM order_items WHERE order_id=?').all(ord.id);
+              for(const it of items){ if(it.product_id) db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(it.quantity, it.product_id); }
+            }
+            try{ db.prepare('DELETE FROM payments WHERE order_id=?').run(ord.id); }catch(e){}
+            try{ db.prepare('DELETE FROM order_status_history WHERE order_id=?').run(ord.id); }catch(e){}
+            try{ db.prepare('DELETE FROM order_items WHERE order_id=?').run(ord.id); }catch(e){}
+            try{ db.prepare('DELETE FROM notifications WHERE order_id=?').run(ord.id); }catch(e){}
+          }
+          try{ db.prepare('DELETE FROM orders WHERE customer_id=?').run(cid); }catch(e){}
+          try{ db.prepare('DELETE FROM chats WHERE customer_id=?').run(cid); }catch(e){}
+          try{ db.prepare('DELETE FROM reviews WHERE customer_id=?').run(cid); }catch(e){}
+          try{ db.prepare('DELETE FROM notifications WHERE customer_id=?').run(cid); }catch(e){}
+          try{ db.prepare('DELETE FROM customer_sessions WHERE customer_id=?').run(cid); }catch(e){}
+          db.prepare('DELETE FROM customers WHERE id=?').run(cid);
+          db.exec('COMMIT');
+          return json(res,200,{ok:true});
+        }catch(e){
+          try{ db.exec('ROLLBACK'); }catch{}
+          return json(res,500,{error:'Gagal menghapus pelanggan: '+e.message});
+        }
+      }
+    }
+    if(req.method==='GET' && url.pathname==='/api/analytics') {
       const date=url.searchParams.get('date'), month=url.searchParams.get('month'), year=url.searchParams.get('year'), from=url.searchParams.get('from'), to=url.searchParams.get('to');
       let where=''; const params=[];
       const addWhere=(cond,val)=>{ where += (where?' AND ':' WHERE ')+cond; params.push(val); };
@@ -156,7 +206,7 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
    if(req.method==='GET' && url.pathname==='/api/customer/orders') {
      const phone=(url.searchParams.get('phone')||'').trim();
      if(!phone) return json(res,200,[]);
-     const rows=db.prepare(`SELECT o.id,o.code,o.status,o.notes,o.total,o.payment_method,o.payment_bank,o.payment_status,o.created_at,o.updated_at FROM orders o JOIN customers c ON c.id=o.customer_id WHERE c.phone=? ORDER BY o.id DESC`).all(phone);
+     const rows=db.prepare(`SELECT o.id,o.code,o.status,o.notes,o.total,o.payment_method,o.payment_bank,o.card_brand,o.card_last4,o.card_holder,o.qris_payload,o.payment_status,o.created_at,o.updated_at FROM orders o JOIN customers c ON c.id=o.customer_id WHERE c.phone=? ORDER BY o.id DESC`).all(phone);
       const itemStmt=db.prepare('SELECT product_name, quantity, unit_price, subtotal FROM order_items WHERE order_id=?');
       return json(res,200,rows.map(o=>({...o,items:itemStmt.all(o.id)})));
    }
@@ -360,7 +410,7 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
     const token=auth.replace('Bearer ','');
     const authedCustomer=token?getCustomerFromToken(token):null;
     const body=await readBody(req);
-    let {customerName,phone='',type='langsung',preorderId=null,notes='',items=[],paymentMethod='tunai',paymentStatus='belum_dibayar',paymentBank=null,paymentProof=null}=body;
+    let {customerName,phone='',type='langsung',preorderId=null,notes='',items=[],paymentMethod='tunai',paymentStatus='belum_dibayar',paymentBank=null,paymentProof=null,cardBrand=null,cardLast4=null,cardNumber=null,cardHolder=null,qrisPayload=null}=body;
     if(!Array.isArray(items) || !items.length) return json(res,400,{error:'Minimal satu produk wajib diisi.'});
     if(type!=='langsung' || preorderId) return json(res,400,{error:'Fitur pre-order sudah tidak tersedia. Buat pesanan langsung saja.'});
     const methods=['tunai','transfer','qris','kartu'];
@@ -368,6 +418,14 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
     if(!['dibayar','belum_dibayar'].includes(paymentStatus)) return json(res,400,{error:'Status pembayaran tidak valid.'});
     const banks=['BCA','BRI','BNI','Mandiri','BSI','CIMB Niaga','Permata','BTN','Lainnya'];
     if(paymentMethod==='transfer' && (!paymentBank || !banks.includes(paymentBank))) return json(res,400,{error:'Pilih bank tujuan transfer.'});
+     const cardBrands=['Visa','Mastercard','JCB','Amex'];
+     if(paymentMethod==='kartu'){
+       if(!cardBrand || !cardBrands.includes(cardBrand)) return json(res,400,{error:'Pilih jenis kartu (Visa/Mastercard/JCB/Amex).'});
+       const digits=(cardNumber||'').replace(/\D/g,'');
+       if(digits.length < 13 || digits.length > 19) return json(res,400,{error:'Nomor kartu tidak valid (13-19 digit).'});
+       if(!cardHolder?.trim()) return json(res,400,{error:'Nama pemegang kartu wajib diisi.'});
+       cardLast4 = digits.slice(-4);
+     }
     let customer;
     if(authedCustomer) {
       customer=authedCustomer;
@@ -386,7 +444,9 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
         if(existing) { customer=db.prepare('SELECT * FROM customers WHERE id=?').get(existing.id); }
         else { const info=db.prepare('INSERT INTO customers (name,phone) VALUES (?,?)').run(customerName.trim(),phoneDigits); customer={id:Number(info.lastInsertRowid),name:customerName.trim(),phone:phoneDigits}; }
       }
-      const order=db.prepare('INSERT INTO orders (customer_id,type,preorder_id,notes,payment_method,payment_bank,payment_status,payment_proof,paid_at,total) VALUES (?,?,?,?,?,?,?,?,?,0)').run(customer.id,'langsung',null,notes,paymentMethod,paymentMethod==='transfer'?paymentBank:null,paymentStatus,paymentStatus==='dibayar'?(paymentProof||null):null,paymentStatus==='dibayar'?new Date().toISOString():null);
+      const qrisGen = paymentMethod==='qris' ? ('QRIS-GB-'+Date.now()+'-'+Math.random().toString(36).slice(2,6).toUpperCase() + '|' + 'GABIN-BAR') : null;
+       const maskedCard = paymentMethod==='kartu' ? ('**** **** **** '+ (cardLast4||'')) : null;
+       const order=db.prepare('INSERT INTO orders (customer_id,type,preorder_id,notes,payment_method,payment_bank,card_brand,card_last4,card_holder,qris_payload,payment_status,payment_proof,paid_at,total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)').run(customer.id,'langsung',null,notes,paymentMethod,paymentMethod==='transfer'?paymentBank:null,paymentMethod==='kartu'?cardBrand:null,paymentMethod==='kartu'?cardLast4:null,paymentMethod==='kartu'?cardHolder:null,qrisGen,paymentStatus,paymentStatus==='dibayar'?(paymentProof||null):null,paymentStatus==='dibayar'?new Date().toISOString():null);
       const orderId=Number(order.lastInsertRowid);
       let total=0;
       const itemStmt=db.prepare('INSERT INTO order_items (order_id,product_id,product_name,quantity,unit_price,subtotal) VALUES (?,?,?,?,?,?)');
@@ -421,7 +481,7 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
     }
   }
   const match=url.pathname.match(/^\/api\/orders\/(\d+)\/status$/);
-   if(req.method==='PATCH' && match){const {status,note='',paymentStatus}=await readBody(req);if(!['menunggu','diproses','siap_diambil','selesai','dibatalkan'].includes(status))return json(res,400,{error:'Status tidak valid'});const ord=db.prepare('SELECT o.id,o.code,o.customer_id FROM orders o WHERE o.id=?').get(match[1]);if(!ord)return json(res,404,{error:'Pesanan tidak ditemukan'});db.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(status,match[1]);if(paymentStatus&&['dibayar','belum_dibayar'].includes(paymentStatus)){db.prepare('UPDATE orders SET payment_status=? WHERE id=?').run(paymentStatus,match[1]);db.prepare("UPDATE payments SET status=?,paid_at=? WHERE order_id=?").run(paymentStatus==='dibayar'?'dibayar':'menunggu',paymentStatus==='dibayar'?new Date().toISOString():null,match[1])}db.prepare('INSERT INTO order_status_history (order_id,status,note) VALUES (?,?,?)').run(match[1],status,note);const label={menunggu:'Menunggu pembayaran',diproses:'Sedang diproses',siap_diambil:'Siap diambil',selesai:'Selesai',dibatalkan:'Dibatalkan'}[status];if(ord.customer_id)db.prepare('INSERT INTO notifications (recipient,customer_id,message) VALUES (?,?,?)').run('customer',ord.customer_id,`Status pesanan ${ord.code} diperbarui: ${label}.`);return json(res,200,{ok:true});}
+   if(req.method==='PATCH' && match){const {status,note='',paymentStatus}=await readBody(req);if(!['menunggu','diproses','siap_diambil','selesai','dibatalkan'].includes(status))return json(res,400,{error:'Status tidak valid'});const ord=db.prepare('SELECT o.id,o.code,o.status,o.customer_id FROM orders o WHERE o.id=?').get(match[1]);if(!ord)return json(res,404,{error:'Pesanan tidak ditemukan'});const prevStatus=ord.status;if(status==='dibatalkan' && prevStatus!=='dibatalkan'){const items=db.prepare('SELECT product_id, quantity FROM order_items WHERE order_id=?').all(match[1]); for(const it of items){ if(it.product_id) db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(it.quantity, it.product_id); }}db.prepare("UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(status,match[1]);if(paymentStatus&&['dibayar','belum_dibayar'].includes(paymentStatus)){db.prepare('UPDATE orders SET payment_status=? WHERE id=?').run(paymentStatus,match[1]);db.prepare("UPDATE payments SET status=?,paid_at=? WHERE order_id=?").run(paymentStatus==='dibayar'?'dibayar':'menunggu',paymentStatus==='dibayar'?new Date().toISOString():null,match[1])}db.prepare('INSERT INTO order_status_history (order_id,status,note) VALUES (?,?,?)').run(match[1],status,note);const label={menunggu:'Menunggu pembayaran',diproses:'Sedang diproses',siap_diambil:'Siap diambil',selesai:'Selesai',dibatalkan:'Dibatalkan'}[status];if(ord.customer_id)db.prepare('INSERT INTO notifications (recipient,customer_id,message) VALUES (?,?,?)').run('customer',ord.customer_id,`Status pesanan ${ord.code} diperbarui: ${label}.`+ (status==='dibatalkan'?' Stok dikembalikan.':'') );return json(res,200,{ok:true});}
    const payMatch=url.pathname.match(/^\/api\/orders\/(\d+)\/payment$/);
    if(req.method==='PATCH' && payMatch){
      const {paymentStatus='dibayar',method,paymentBank=null,paymentProof=null}=await readBody(req);
@@ -430,6 +490,39 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
      db.prepare('UPDATE orders SET payment_status=?,payment_method=COALESCE(?,payment_method),payment_bank=COALESCE(?,payment_bank),payment_proof=COALESCE(?,payment_proof),paid_at=? WHERE id=?').run(paymentStatus,method||null,paymentBank||null,paymentProof||null,paymentStatus==='dibayar'?new Date().toISOString():null,payMatch[1]);
      db.prepare("UPDATE payments SET status=?,method=COALESCE(?,method),paid_at=? WHERE order_id=?").run(paymentStatus==='dibayar'?'dibayar':'menunggu',method||null,paymentStatus==='dibayar'?new Date().toISOString():null,payMatch[1]);
      if(paymentStatus==='dibayar')db.prepare("INSERT INTO notifications (recipient,message) VALUES ('admin',?)").run(`Pembayaran pesanan ${order.code} dikonfirmasi lunas via ${method||order.payment_method||'tunai'}.`);db.prepare('INSERT INTO notifications (recipient,customer_id,message) VALUES (?,?,?)').run('customer',order.customer_id,`Pembayaran pesanan ${order.code} telah dikonfirmasi lunas oleh admin. Terima kasih!`);
+     return json(res,200,{ok:true});
+   }
+      const cancelMatch=url.pathname.match(/^\/api\/orders\/(\d+)\/cancel$/);
+   if(req.method==='PATCH' && cancelMatch){
+     const id=cancelMatch[1];
+     const order=db.prepare('SELECT o.*, c.phone FROM orders o LEFT JOIN customers c ON c.id=o.customer_id WHERE o.id=?').get(id);
+     if(!order) return json(res,404,{error:'Pesanan tidak ditemukan'});
+     // customer cancel: allow only if status masih menunggu and not yet diproses/selesai and not already dibatalkan
+     // verify ownership via phone or token if provided
+     const auth=req.headers['authorization']||'';
+     const token=auth.replace('Bearer ','');
+     const authed=getCustomerFromToken(token);
+     let phone=url.searchParams.get('phone')||'';
+     if(authed) phone=authed.phone;
+     else if(!phone) {
+       const bodyCheck=await readBody(req).catch(()=>({}));
+       phone=bodyCheck.phone||'';
+     }
+     // if authed, ensure order belongs to them
+     if(authed && String(order.customer_id)!==String(authed.id)) return json(res,403,{error:'Pesanan bukan milik Anda.'});
+     if(!authed && phone) {
+       const digits=phone.replace(/\D/g,'');
+       if(digits && order.phone && digits!==order.phone.replace(/\D/g,'')) return json(res,403,{error:'Nomor WhatsApp tidak cocok.'});
+     }
+     if(order.status!=='menunggu') return json(res,400,{error:'Hanya pesanan dengan status menunggu yang bisa dibatalkan.'});
+     if(order.payment_status==='dibayar') return json(res,400,{error:'Pesanan sudah dibayar, hubungi admin untuk pembatalan.'});
+     // restore stock
+     const items=db.prepare('SELECT product_id, quantity FROM order_items WHERE order_id=?').all(id);
+     for(const it of items){ if(it.product_id) db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(it.quantity, it.product_id); }
+     db.prepare("UPDATE orders SET status='dibatalkan', updated_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
+     db.prepare('INSERT INTO order_status_history (order_id,status,note) VALUES (?,?,?)').run(id,'dibatalkan','Dibatalkan oleh customer');
+     db.prepare("INSERT INTO notifications (recipient,message) VALUES ('admin',?)").run('Pesanan '+order.code+' dibatalkan oleh customer ('+(order.customer_id||phone||'')+').');
+     if(order.customer_id) db.prepare('INSERT INTO notifications (recipient,customer_id,message) VALUES (?,?,?)').run('customer',order.customer_id,'Pesanan '+order.code+' berhasil dibatalkan. Stok dikembalikan.');
      return json(res,200,{ok:true});
    }
    const confirmMatch=url.pathname.match(/^\/api\/orders\/(\d+)\/confirm-payment$/);
