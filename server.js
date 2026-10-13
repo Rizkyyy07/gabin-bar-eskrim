@@ -233,14 +233,16 @@ if(req.method==='GET' && url.pathname==='/api/packages') { const all=url.searchP
    // --- Admin Auth API ---
    if(req.method==='POST' && url.pathname==='/api/admin/auth/login'){
      const {identifier, password}=await readBody(req);
-     if(!identifier?.trim()||!password) return json(res,400,{error:'Email/username dan password wajib diisi.'});
-     let u=null;
-     // try email first (case-insensitive)
-     try{ u=db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(identifier.trim()); }catch(e){}
-     if(!u){
-       try{ u=db.prepare('SELECT * FROM users WHERE name=?').get(identifier.trim()); }catch(e){}
-     }
-     if(!u) u=db.prepare('SELECT * FROM users WHERE email=?').get(identifier.trim().toLowerCase());
+      if(!identifier?.trim()||!password) return json(res,400,{error:'Email atau nomor telepon dan password wajib diisi.'});
+      let u=null;
+      const idTrim=identifier.trim();
+      if(idTrim.includes('@')){
+        try{ u=db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(idTrim); }catch(e){}
+        if(!u) try{ u=db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(idTrim.toLowerCase()); }catch(e){}
+      } else {
+        const digits=idTrim.replace(/\D/g,'');
+        if(digits) try{ u=db.prepare('SELECT * FROM users WHERE phone=?').get(digits); }catch(e){}
+      }
      const _hp=hashPassword(password); const _h123=crypto.createHash('sha256').update('123456').digest('hex'); const _hAdm=crypto.createHash('sha256').update('admin123').digest('hex'); const _ok=_hp===u?.password || (_hp===_hAdm && u?.password===_h123) || (_hp===_h123 && u?.password===_hAdm); if(!u || !u.password || !_ok) return json(res,401,{error:'Kredensial admin tidak valid.'});
      const token=genToken();
      const expires=new Date(Date.now()+30*24*60*60*1000).toISOString();
